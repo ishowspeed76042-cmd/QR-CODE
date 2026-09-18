@@ -1,6 +1,7 @@
 const TelegramBot = require('node-telegram-bot-api');
 const Razorpay = require('razorpay');
 const QRCode = require('qrcode');
+const axios = require('axios');
 const http = require('http');
 
 // Dummy HTTP server for Render deployment port detection
@@ -33,40 +34,45 @@ bot.onText(/\/start/, (msg) => {
   );
 });
 
-// Handle incoming messages
+// Admin Command: Direct Skip Payment
+bot.onText(/\/admins_payment_skip(?:\s+(.+))?/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const contentToEncode = match[1] ? match[1].trim() : '';
+
+  if (!contentToEncode) {
+    bot.sendMessage(
+      chatId,
+      "⚠️ Please provide text after the command.\n\nExample: `/admins_payment_skip Hello World`",
+      { parse_mode: 'Markdown' }
+    );
+    return;
+  }
+
+  try {
+    bot.sendMessage(chatId, "⚡ Admin payment bypass activated. Generating your final QR code directly...");
+
+    // Generate custom QR Code directly without any payment
+    const finalQrBuffer = await QRCode.toBuffer(contentToEncode, {
+      width: 300,
+      margin: 2
+    });
+
+    await bot.sendPhoto(chatId, finalQrBuffer, {
+      caption: "🎉 **Here is your QR Code!** (Admin Bypassed)"
+    });
+  } catch (err) {
+    console.error("Admin QR Generation Error:", err);
+    bot.sendMessage(chatId, "❌ Failed to generate QR code.");
+  }
+});
+
+// Handle Normal User Messages
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
 
-  // Ignore simple /start command
-  if (!text || text === '/start') return;
-
-  // Admin Bypass Feature
-  if (text.startsWith('/admins_payment_skip')) {
-    const contentToEncode = text.replace('/admins_payment_skip', '').trim();
-
-    if (!contentToEncode) {
-      bot.sendMessage(chatId, "⚠️ Please provide text after the command.\n\nExample: `/admins_payment_skip Hello World`", { parse_mode: 'Markdown' });
-      return;
-    }
-
-    try {
-      bot.sendMessage(chatId, "⚡ Admin payment bypass activated. Generating your QR code...");
-
-      const finalQrBuffer = await QRCode.toBuffer(contentToEncode, {
-        width: 300,
-        margin: 2
-      });
-
-      await bot.sendPhoto(chatId, finalQrBuffer, {
-        caption: "🎉 **Here is your QR Code!**"
-      });
-    } catch (err) {
-      console.error("Admin QR Generation Error:", err);
-      bot.sendMessage(chatId, "❌ Failed to generate QR code.");
-    }
-    return;
-  }
+  // Ignore commands like /start or /admins_payment_skip
+  if (!text || text.startsWith('/')) return;
 
   // Normal User Flow with ₹2 Payment
   try {
@@ -90,12 +96,12 @@ bot.on('message', async (msg) => {
       }
     });
 
-    // Use short_url or raw upi_string for direct scanning without web redirection
-    const qrTargetString = rzpQr.short_url || rzpQr.image_url;
-    const paymentQrBuffer = await QRCode.toBuffer(qrTargetString, { width: 300, margin: 2 });
+    // Fetch the actual payment QR image directly from Razorpay URL
+    const response = await axios.get(rzpQr.image_url, { responseType: 'arraybuffer' });
+    const realPaymentQrBuffer = Buffer.from(response.data, 'utf-8');
 
     // Send Direct Payment QR to User
-    await bot.sendPhoto(chatId, paymentQrBuffer, {
+    await bot.sendPhoto(chatId, realPaymentQrBuffer, {
       caption: `💰 **Payment Details:**\n\nScan this QR code using Google Pay, PhonePe, or Paytm to pay **₹2** and unlock your custom QR code.\n\n⏰ **Time Limit:** 15 Minutes\n📍 **QR ID:** \`${rzpQr.id}\``,
       parse_mode: 'Markdown'
     });
