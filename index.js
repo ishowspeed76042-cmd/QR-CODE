@@ -1,6 +1,16 @@
 const TelegramBot = require('node-telegram-bot-api');
 const Razorpay = require('razorpay');
 const QRCode = require('qrcode');
+const http = require('http');
+
+// Render / Web Service के लिए dummy HTTP server ताकि Port Detect Error न आये
+const PORT = process.env.PORT || 8080;
+http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('Telegram Bot is running smoothly!\n');
+}).listen(PORT, () => {
+  console.log(`Server is listening on port ${PORT}`);
+});
 
 // API Credentials
 const TELEGRAM_TOKEN = '8712759180:AAEf1kFAwcMGBZLGLOKOJSDF_RuonPNAGo8';
