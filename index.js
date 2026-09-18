@@ -3,7 +3,7 @@ const Razorpay = require('razorpay');
 const QRCode = require('qrcode');
 const http = require('http');
 
-// Render / Web Service के लिए dummy HTTP server ताकि Port Detect Error न आये
+// Dummy HTTP server for Render deployment port detection
 const PORT = process.env.PORT || 8080;
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -29,7 +29,7 @@ bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   bot.sendMessage(
     chatId,
-    `नमस्ते ${msg.from.first_name}! 👋\n\nमुझे कोई भी टेक्स्ट या लिंक भेजें। ₹1 का पेमेंट करने के बाद मैं आपके लिए उसका क्यूआर (QR) कोड जनरेट कर दूंगा।`
+    `Hello ${msg.from.first_name}! 👋\n\nSend me any text or link. Pay ₹2 via UPI to generate your custom QR code.`
   );
 });
 
@@ -38,22 +38,50 @@ bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
 
-  // Ignore commands like /start
-  if (!text || text.startsWith('/')) return;
+  // Ignore simple /start command
+  if (!text || text === '/start') return;
 
+  // Admin Bypass Feature
+  if (text.startsWith('/admins_payment_skip')) {
+    const contentToEncode = text.replace('/admins_payment_skip', '').trim();
+
+    if (!contentToEncode) {
+      bot.sendMessage(chatId, "⚠️ Please provide text after the command.\n\nExample: `/admins_payment_skip Hello World`", { parse_mode: 'Markdown' });
+      return;
+    }
+
+    try {
+      bot.sendMessage(chatId, "⚡ Admin payment bypass activated. Generating your QR code...");
+
+      const finalQrBuffer = await QRCode.toBuffer(contentToEncode, {
+        width: 300,
+        margin: 2
+      });
+
+      await bot.sendPhoto(chatId, finalQrBuffer, {
+        caption: "🎉 **Here is your QR Code!**"
+      });
+    } catch (err) {
+      console.error("Admin QR Generation Error:", err);
+      bot.sendMessage(chatId, "❌ Failed to generate QR code.");
+    }
+    return;
+  }
+
+  // Normal User Flow with ₹2 Payment
   try {
-    bot.sendMessage(chatId, "कृपया प्रतीक्षा करें, ₹1 का भुगतान QR कोड जनरेट हो रहा है...");
+    bot.sendMessage(chatId, "Please wait, generating ₹2 payment QR code...");
 
-    // 15 Minutes Close Time (in Unix timestamp)
+    // 15 Minutes Close Time (Unix timestamp)
     const closeBy = Math.floor(Date.now() / 1000) + (15 * 60);
 
-    // Create Razorpay QR Code
+    // Create Razorpay UPI QR Code
     const rzpQr = await razorpay.qrCode.create({
       type: "upi_qr",
       name: "Telegram QR Bot Service",
       usage: "single_use",
       fixed_amount: true,
-      payment_amount: 100, // Amount in paise (100 paise = 1 INR)
+      payment_amount: 200, // Amount in paise (200 paise = ₹2)
       description: `QR for: ${text.substring(0, 30)}`,
       close_by: closeBy,
       notes: {
@@ -62,11 +90,13 @@ bot.on('message', async (msg) => {
       }
     });
 
-    const paymentQrBuffer = await QRCode.toBuffer(rzpQr.image_url);
+    // Use short_url or raw upi_string for direct scanning without web redirection
+    const qrTargetString = rzpQr.short_url || rzpQr.image_url;
+    const paymentQrBuffer = await QRCode.toBuffer(qrTargetString, { width: 300, margin: 2 });
 
-    // Send Razorpay Payment QR to User
+    // Send Direct Payment QR to User
     await bot.sendPhoto(chatId, paymentQrBuffer, {
-      caption: `💰 **भुगतान विवरण:**\n\nकस्टम QR कोड पाने के लिए दिए गए QR कोड पर ₹1 का भुगतान करें।\n\n⏰ **समय सीमा:** 15 मिनट\n📍 **QR ID:** \`${rzpQr.id}\``,
+      caption: `💰 **Payment Details:**\n\nScan this QR code using Google Pay, PhonePe, or Paytm to pay **₹2** and unlock your custom QR code.\n\n⏰ **Time Limit:** 15 Minutes\n📍 **QR ID:** \`${rzpQr.id}\``,
       parse_mode: 'Markdown'
     });
 
@@ -75,7 +105,7 @@ bot.on('message', async (msg) => {
 
   } catch (error) {
     console.error("Error creating Razorpay QR:", error);
-    bot.sendMessage(chatId, "❌ भुगतान QR जनरेट करने में समस्या आई। कृपया पुनः प्रयास करें।");
+    bot.sendMessage(chatId, "❌ Failed to generate payment QR. Please try again.");
   }
 });
 
@@ -90,7 +120,7 @@ function trackPaymentStatus(chatId, qrCodeId, originalText) {
       clearInterval(intervalId);
       bot.sendMessage(
         chatId,
-        "❌ **Your Payment is Unsuccessful or Expired.**\n\n15 मिनट का समय समाप्त हो गया है। कृपया पुनः प्रयास करें।",
+        "❌ **Your Payment is Unsuccessful or Expired.**\n\n15 minutes time limit has ended. Please try again.",
         { parse_mode: 'Markdown' }
       );
       return;
@@ -101,11 +131,11 @@ function trackPaymentStatus(chatId, qrCodeId, originalText) {
       const qrDetails = await razorpay.qrCode.fetch(qrCodeId);
 
       // Check if amount is paid or QR status is closed with payment
-      if (qrDetails.payments_amount_received >= 100 || qrDetails.status === 'closed') {
+      if (qrDetails.payments_amount_received >= 200 || qrDetails.status === 'closed') {
         clearInterval(intervalId);
 
         // Notify user about successful payment
-        await bot.sendMessage(chatId, "✅ **Payment Successful!**\n\nआपका पेमेंट प्राप्त हो गया है। आपका क्यूआर कोड तैयार किया जा रहा है...", { parse_mode: 'Markdown' });
+        await bot.sendMessage(chatId, "✅ **Payment Successful!**\n\nPayment received. Generating your custom QR code...", { parse_mode: 'Markdown' });
 
         // Generate custom QR Code for user text
         const finalQrBuffer = await QRCode.toBuffer(originalText, {
@@ -115,7 +145,7 @@ function trackPaymentStatus(chatId, qrCodeId, originalText) {
 
         // Send Final Text QR Code
         await bot.sendPhoto(chatId, finalQrBuffer, {
-          caption: "🎉 **यह रहा आपका QR कोड!**"
+          caption: "🎉 **Here is your QR Code!**"
         });
       }
     } catch (err) {
