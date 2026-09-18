@@ -34,7 +34,7 @@ bot.onText(/\/start/, (msg) => {
   );
 });
 
-// Admin Command: Direct Skip Payment
+// Admin Command: Skip Payment completely and generate final QR directly
 bot.onText(/\/admins_payment_skip(?:\s+(.+))?/, async (msg, match) => {
   const chatId = msg.chat.id;
   const contentToEncode = match[1] ? match[1].trim() : '';
@@ -42,7 +42,7 @@ bot.onText(/\/admins_payment_skip(?:\s+(.+))?/, async (msg, match) => {
   if (!contentToEncode) {
     bot.sendMessage(
       chatId,
-      "⚠️ Please provide text after the command.\n\nExample: `/admins_payment_skip Hello World`",
+      "⚠️ Please provide text after the command.\n\nExample: `/admins_payment_skip https://example.com`",
       { parse_mode: 'Markdown' }
     );
     return;
@@ -51,7 +51,7 @@ bot.onText(/\/admins_payment_skip(?:\s+(.+))?/, async (msg, match) => {
   try {
     bot.sendMessage(chatId, "⚡ Admin payment bypass activated. Generating your final QR code directly...");
 
-    // Generate custom QR Code directly without any payment
+    // Directly generate custom QR Code for user text without creating payment QR
     const finalQrBuffer = await QRCode.toBuffer(contentToEncode, {
       width: 300,
       margin: 2
@@ -71,7 +71,7 @@ bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
 
-  // Ignore commands like /start or /admins_payment_skip
+  // IMPORTANT: Ignore ALL commands (starting with /) so it doesn't create payment QR for commands!
   if (!text || text.startsWith('/')) return;
 
   // Normal User Flow with ₹2 Payment
